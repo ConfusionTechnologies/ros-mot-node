@@ -9,12 +9,11 @@ from rclpy.node import Node
 from ros2topic.api import get_msg_class
 
 import numpy as np
-from norfair import Tracker, Detection
+from norfair import Tracker, Detection, OptimizedKalmanFilterFactory
 
 from foxglove_msgs.msg import ImageMarkerArray
 from visualization_msgs.msg import ImageMarker
 from geometry_msgs.msg import Point
-from std_msgs.msg import ColorRGBA
 from nicepynode import Job, JobCfg
 from norfair_ros.distance import create_kp_dist_calculator
 
@@ -31,8 +30,6 @@ class NorfairCfg(JobCfg):
     """minimum confidence to consider a keypoint"""
     score_threshold: float = 0.01  # 0.8
     """overall threshold above which to consider candidates as separate tracks"""
-    tracked_kps: list[int] = field(default_factory=lambda: [0, 11, 12, 23, 24])
-    """which keypoints to use for tracking"""
     dets_in_topic: str = "~/dets_in"
     """KEYPOINTS MUST BE NORMALIZED BEFOREHAND!!!!"""
     det_msg_name: str = "poses"
@@ -69,6 +66,7 @@ class NorfairTracker(Job[NorfairCfg]):
             initialization_delay=2,  # min HP for track to be considered
             pointwise_hit_counter_max=5,  # max HP of keypoints
             past_detections_length=0,
+            filter_factory=OptimizedKalmanFilterFactory()
         )
 
         self.log.info(f"Waiting for publisher@{cfg.dets_in_topic}...")
@@ -100,11 +98,8 @@ class NorfairTracker(Job[NorfairCfg]):
         #     return True
         return True
 
-    def step(self, delta: float):
-        # Unused for this node
-        return super().step(delta)
-
     def _on_input(self, detsmsg):
+        # Tracker should run every frame to be accurate
         # if (
         #     self._track_pub.get_subscription_count()
         #     + self._marker_pub.get_subscription_count()
@@ -114,26 +109,15 @@ class NorfairTracker(Job[NorfairCfg]):
 
         dets = getattr(detsmsg, self.cfg.det_msg_name)
 
-        # array of N*kp*(x, y, score)
-        arr = np.array(
-            [
-                [
-                    (kp.x, kp.y, s)
-                    for kp, s in zip(d.track.keypoints, d.track.keypoint_scores)
-                ]
-                for d in dets
-            ]
-        )
-
-        norfair_dets = [
+        norfair_dets = tuple(
             Detection(
-                points=arr[i, self.cfg.tracked_kps, :2],
-                scores=arr[i, self.cfg.tracked_kps, 2],
+                points=np.array((d.track.x, d.track.y)).T,
+                scores=np.frombuffer(d.track.scores, dtype=np.float32),
                 data=d,
                 label=d.track.label,
             )
-            for i, d in enumerate(dets)
-        ]
+            for d in dets
+        )
 
         # TODO: use time delta for period.
         tracks = self.tracker.update(detections=norfair_dets, period=1)
@@ -145,7 +129,7 @@ class NorfairTracker(Job[NorfairCfg]):
             # so setting here will set it in the original detsmsg
             # unless this happens to be stale (aka last frame's) det...
             # TODO: detect and filter out stale? Or use the Kalman prediction? How to update the timestamp??
-            det.track.id = f"Track-{t.id}"
+            det.track.id = t.id
             tracked_dets.append(det)
 
         if self._track_pub.get_subscription_count() > 0:
@@ -154,30 +138,28 @@ class NorfairTracker(Job[NorfairCfg]):
             self._track_pub.publish(detsmsg)
 
         if self._marker_pub.get_subscription_count() > 0:
-            markers = []
+            markersmsg = ImageMarkerArray()
+
             for d in dets:
                 c = self._id_color_map.get(d.track.id, None)
                 if c is None:
                     c = self._id_color_map[d.track.id] = random.random()
 
                 color = hsv_to_rgb(c, 1, 1)
-                markers.append(
-                    ImageMarker(
-                        header=detsmsg.header,
-                        scale=4.0,
-                        type=ImageMarker.POINTS,
-                        outline_color=ColorRGBA(
-                            r=float(color[0]),
-                            g=float(color[1]),
-                            b=float(color[2]),
-                            a=1.0,
-                        ),
-                        # TODO: generalize, also cannot use track.keypoints as those are normalized...
-                        points=[Point(x=d.pose[0].x, y=d.pose[0].y)],
-                    )
-                )
+                marker = ImageMarker(header=detsmsg.header)
+                marker.scale = 4.0
+                marker.type = ImageMarker.POINTS
+                marker.outline_color.r = float(color[0])
+                marker.outline_color.g = float(color[1])
+                marker.outline_color.b = float(color[2])
+                marker.outline_color.a = 1.0
 
-            self._marker_pub.publish(ImageMarkerArray(markers=markers))
+                # TODO: generalize (dont hardcode), also cannot use track.keypoints as those are normalized...
+                marker.points.append(Point(x=float(d.x[0]), y=float(d.y[0])))
+
+                markersmsg.markers.append(marker)
+
+            self._marker_pub.publish(markersmsg)
 
 
 def main(args=None):
