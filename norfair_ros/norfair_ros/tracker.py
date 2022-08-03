@@ -15,6 +15,7 @@ from foxglove_msgs.msg import ImageMarkerArray
 from visualization_msgs.msg import ImageMarker
 from geometry_msgs.msg import Point
 from nicepynode import Job, JobCfg
+from nicepynode.utils import declare_parameters_from_dataclass
 from norfair_ros.distance import create_kp_dist_calculator
 
 NODE_NAME = "norfair_mot"
@@ -45,12 +46,7 @@ class NorfairTracker(Job[NorfairCfg]):
     def attach_params(self, node: Node, cfg: NorfairCfg):
         super(NorfairTracker, self).attach_params(node, cfg)
 
-        node.declare_parameter("kp_score_threshold", cfg.kp_score_threshold)
-        node.declare_parameter("score_threshold", cfg.score_threshold)
-        node.declare_parameter("dets_in_topic", cfg.dets_in_topic)
-        node.declare_parameter("det_msg_name", cfg.det_msg_name)
-        node.declare_parameter("tracks_out_topic", cfg.tracks_out_topic)
-        node.declare_parameter("markers_out_topic", cfg.markers_out_topic)
+        declare_parameters_from_dataclass(node, cfg)
 
     def attach_behaviour(self, node: Node, cfg: NorfairCfg):
         super(NorfairTracker, self).attach_behaviour(node, cfg)
@@ -66,7 +62,7 @@ class NorfairTracker(Job[NorfairCfg]):
             initialization_delay=2,  # min HP for track to be considered
             pointwise_hit_counter_max=5,  # max HP of keypoints
             past_detections_length=0,
-            filter_factory=OptimizedKalmanFilterFactory()
+            filter_factory=OptimizedKalmanFilterFactory(),
         )
 
         self.log.info(f"Waiting for publisher@{cfg.dets_in_topic}...")

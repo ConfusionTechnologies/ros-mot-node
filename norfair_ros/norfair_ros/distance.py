@@ -7,7 +7,7 @@ from norfair.tracker import TrackedObject
 # TODO: feature vector association
 
 
-def create_kp_match_calculator(dist_threshold=1 / 40, conf_threshold=0.5):
+def create_kp_vote_calculator(dist_threshold=1 / 40, conf_threshold=0.5):
     """gauge detection distance by number of keypoints under a threshold of euclidean distance (aka "matching")"""
 
     def match_distance(pose: Detection, pose_track: TrackedObject):
