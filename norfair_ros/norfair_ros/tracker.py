@@ -1,25 +1,25 @@
 from __future__ import annotations
-from dataclasses import dataclass, field
-import sys
-import random
-from colorsys import hsv_to_rgb
 
-import rclpy
-from rclpy.node import Node
-from ros2topic.api import get_msg_class
+import random
+import sys
+from colorsys import hsv_to_rgb
+from dataclasses import dataclass, field
 
 import numpy as np
-from norfair import Tracker, Detection, OptimizedKalmanFilterFactory
-
+import rclpy
 from foxglove_msgs.msg import ImageMarkerArray
-from visualization_msgs.msg import ImageMarker
 from geometry_msgs.msg import Point
 from nicepynode import Job, JobCfg
 from nicepynode.utils import (
-    declare_parameters_from_dataclass,
-    RT_SUB_PROFILE,
     RT_PUB_PROFILE,
+    RT_SUB_PROFILE,
+    declare_parameters_from_dataclass,
 )
+from norfair import Detection, OptimizedKalmanFilterFactory, Tracker
+from rclpy.node import Node
+from ros2topic.api import get_msg_class
+from visualization_msgs.msg import ImageMarker
+
 from norfair_ros.distance import create_kp_dist_calculator
 
 NODE_NAME = "norfair_mot"
