@@ -15,7 +15,11 @@ from foxglove_msgs.msg import ImageMarkerArray
 from visualization_msgs.msg import ImageMarker
 from geometry_msgs.msg import Point
 from nicepynode import Job, JobCfg
-from nicepynode.utils import declare_parameters_from_dataclass
+from nicepynode.utils import (
+    declare_parameters_from_dataclass,
+    RT_SUB_PROFILE,
+    RT_PUB_PROFILE,
+)
 from norfair_ros.distance import create_kp_dist_calculator
 
 NODE_NAME = "norfair_mot"
@@ -68,11 +72,13 @@ class NorfairTracker(Job[NorfairCfg]):
         self.log.info(f"Waiting for publisher@{cfg.dets_in_topic}...")
         self.msg_type = get_msg_class(node, cfg.dets_in_topic, blocking=True)
         self._dets_sub = node.create_subscription(
-            self.msg_type, cfg.dets_in_topic, self._on_input, 5
+            self.msg_type, cfg.dets_in_topic, self._on_input, RT_SUB_PROFILE
         )
-        self._track_pub = node.create_publisher(self.msg_type, cfg.tracks_out_topic, 5)
+        self._track_pub = node.create_publisher(
+            self.msg_type, cfg.tracks_out_topic, RT_PUB_PROFILE
+        )
         self._marker_pub = node.create_publisher(
-            ImageMarkerArray, cfg.markers_out_topic, 5
+            ImageMarkerArray, cfg.markers_out_topic, RT_PUB_PROFILE
         )
 
         self._id_color_map = {}
