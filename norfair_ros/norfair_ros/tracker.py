@@ -20,24 +20,23 @@ from rclpy.node import Node
 from ros2topic.api import get_msg_class
 from visualization_msgs.msg import ImageMarker
 
-from norfair_ros.distance import create_kp_dist_calculator
+from norfair_ros.distance import create_iou_calculator, create_kp_dist_calculator
 
 NODE_NAME = "norfair_mot"
 
 
 @dataclass
 class NorfairCfg(JobCfg):
-    """"""
-
     # kp_dist_threshold: float = 1 / 25
     """maximum normalized distance deviation to be considered tracked"""
     kp_score_threshold: float = 0.2
     """minimum confidence to consider a keypoint"""
     score_threshold: float = 0.01  # 0.8
     """overall threshold above which to consider candidates as separate tracks"""
+    algorithm: str = "euclidean"
     dets_in_topic: str = "~/dets_in"
-    """KEYPOINTS MUST BE NORMALIZED BEFOREHAND!!!!"""
     det_msg_name: str = "poses"
+    det_msg_type: str = "property"
     tracks_out_topic: str = "~/tracks_out"
     markers_out_topic: str = "~/markers"
 
@@ -55,9 +54,29 @@ class NorfairTracker(Job[NorfairCfg]):
     def attach_behaviour(self, node: Node, cfg: NorfairCfg):
         super(NorfairTracker, self).attach_behaviour(node, cfg)
 
+        if cfg.algorithm == "euclidean":
+            func = create_kp_dist_calculator(cfg.kp_score_threshold)
+        elif cfg.algorithm == "iou":
+            # TODO: MUST TEST FAST MOVING OBJECTS
+            # IMPLEMENTATION GIVES SENSE OF COMPLETE FAILURE IF TRACKER DOESNT
+            # GET CHANGE TO ESTIMATE MOTION
+            func = create_iou_calculator()
+        else:
+            # fallback
+            func = create_kp_dist_calculator(cfg.kp_score_threshold)
+
+        if cfg.det_msg_type == "property":
+            # => det.track for det in getattr(msg, cfg.det_msg_name)
+            self._track_is_prop = True
+        elif cfg.det_msg_type == "array":
+            # => track for track in getattr(msg, cfg.det_msg_name)
+            self._track_is_prop = False
+        else:
+            self._track_is_prop = False
+
         # https://github.com/tryolabs/norfair/tree/master/docs#arguments
         self.tracker = Tracker(
-            distance_function=create_kp_dist_calculator(cfg.kp_score_threshold),
+            distance_function=func,
             # max dist from closest track before candidate is considered as new track
             distance_threshold=cfg.score_threshold,
             # threshold below which keypoint is ignored
@@ -95,13 +114,10 @@ class NorfairTracker(Job[NorfairCfg]):
 
     def on_params_change(self, node: Node, changes: dict):
         self.log.info(f"Config changed: {changes}.")
-        # if not all(n in ("crop_pad",) for n in changes):
-        #     self.log.info(f"Config change requires restart.")
-        #     return True
         return True
 
     def _on_input(self, detsmsg):
-        # Tracker should run every frame to be accurate
+        # NOTE: Tracker should run every frame to be accurate
         # if (
         #     self._track_pub.get_subscription_count()
         #     + self._marker_pub.get_subscription_count()
@@ -111,15 +127,26 @@ class NorfairTracker(Job[NorfairCfg]):
 
         dets = getattr(detsmsg, self.cfg.det_msg_name)
 
-        norfair_dets = tuple(
-            Detection(
-                points=np.array((d.track.x, d.track.y)).T,
-                scores=np.frombuffer(d.track.scores, dtype=np.float32),
-                data=d,
-                label=d.track.label,
+        if self._track_is_prop:
+            norfair_dets = tuple(
+                Detection(
+                    points=np.array((d.track.x, d.track.y)).T,
+                    scores=np.frombuffer(d.track.scores, dtype=np.float32),
+                    data=d,
+                    label=d.track.label,
+                )
+                for d in dets
             )
-            for d in dets
-        )
+        else:
+            norfair_dets = tuple(
+                Detection(
+                    points=np.array((t.x, t.y)).T,
+                    scores=np.frombuffer(t.scores, dtype=np.float32),
+                    data=t,
+                    label=t.label,
+                )
+                for t in dets
+            )
 
         # TODO: use time delta for period.
         tracks = self.tracker.update(detections=norfair_dets, period=1)
@@ -127,11 +154,19 @@ class NorfairTracker(Job[NorfairCfg]):
         tracked_dets = []
         for t in tracks:
             det = t.last_detection.data
+
+            # filter out "stale" detections
+            if not det in dets:
+                continue
+
             # at no point is det copied
             # so setting here will set it in the original detsmsg
-            # unless this happens to be stale (aka last frame's) det...
+            # well except the fact tracks include stale tracks from previous frames
             # TODO: detect and filter out stale? Or use the Kalman prediction? How to update the timestamp??
-            det.track.id = t.id
+            if self._track_is_prop:
+                det.track.id = t.id
+            else:
+                det.id = t.id
             tracked_dets.append(det)
 
         if self._track_pub.get_subscription_count() > 0:
@@ -143,9 +178,11 @@ class NorfairTracker(Job[NorfairCfg]):
             markersmsg = ImageMarkerArray()
 
             for d in dets:
-                c = self._id_color_map.get(d.track.id, None)
+                id = d.track.id if self._track_is_prop else d.id
+
+                c = self._id_color_map.get(id, None)
                 if c is None:
-                    c = self._id_color_map[d.track.id] = random.random()
+                    c = self._id_color_map[id] = random.random()
 
                 color = hsv_to_rgb(c, 1, 1)
                 marker = ImageMarker(header=detsmsg.header)
