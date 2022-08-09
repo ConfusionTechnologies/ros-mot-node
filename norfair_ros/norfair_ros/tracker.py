@@ -149,29 +149,32 @@ class NorfairTracker(Job[NorfairCfg]):
             )
 
         # TODO: use time delta for period.
-        tracks = self.tracker.update(detections=norfair_dets, period=1)
+        self.tracker.update(detections=norfair_dets, period=1)
 
-        tracked_dets = []
-        for t in tracks:
+        # dont let norfair filter out initializing tracks
+        for t in self.tracker.tracked_objects:
             det = t.last_detection.data
 
             # filter out "stale" detections
             if not det in dets:
                 continue
 
+            # treat uninitialized tracks as untracked
+            id = -1 if t.is_initializing else t.id
+
             # at no point is det copied
             # so setting here will set it in the original detsmsg
             # well except the fact tracks include stale tracks from previous frames
             # TODO: detect and filter out stale? Or use the Kalman prediction? How to update the timestamp??
             if self._track_is_prop:
-                det.track.id = t.id
+                det.track.id = id
             else:
-                det.id = t.id
-            tracked_dets.append(det)
+                det.id = id
+            # tracked_dets.append(det)
 
         if self._track_pub.get_subscription_count() > 0:
             # republish the msg but with track.id set for each det
-            setattr(detsmsg, self.cfg.det_msg_name, tracked_dets)
+            # setattr(detsmsg, self.cfg.det_msg_name, tracked_dets)
             self._track_pub.publish(detsmsg)
 
         if self._marker_pub.get_subscription_count() > 0:
