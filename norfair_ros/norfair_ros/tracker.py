@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import random
 import sys
+from collections import defaultdict
 from colorsys import hsv_to_rgb
 from dataclasses import dataclass, field
 
@@ -100,7 +101,7 @@ class NorfairTracker(Job[NorfairCfg]):
             ImageMarkerArray, cfg.markers_out_topic, RT_PUB_PROFILE
         )
 
-        self._id_color_map = {}
+        self._id_color_map = defaultdict(lambda: random.random())
         """Used to assign color for visualizing lmao"""
 
         self.log.info("Ready")
@@ -182,12 +183,7 @@ class NorfairTracker(Job[NorfairCfg]):
 
             for d in dets:
                 id = d.track.id if self._track_is_prop else d.id
-
-                c = self._id_color_map.get(id, None)
-                if c is None:
-                    c = self._id_color_map[id] = random.random()
-
-                color = hsv_to_rgb(c, 1, 1)
+                color = hsv_to_rgb(self._id_color_map[id], 1, 1)
                 marker = ImageMarker(header=detsmsg.header)
                 marker.scale = 4.0
                 marker.type = ImageMarker.POINTS
