@@ -166,7 +166,6 @@ class NorfairTracker(Job[NorfairCfg]):
             # at no point is det copied
             # so setting here will set it in the original detsmsg
             # well except the fact tracks include stale tracks from previous frames
-            # TODO: detect and filter out stale? Or use the Kalman prediction? How to update the timestamp??
             if self._track_is_prop:
                 det.track.id = id
             else:
@@ -192,7 +191,7 @@ class NorfairTracker(Job[NorfairCfg]):
                 marker.outline_color.b = float(color[2])
                 marker.outline_color.a = 1.0
 
-                # TODO: generalize (dont hardcode), also cannot use track.keypoints as those are normalized...
+                # NOTE: cannot use track.keypoints as those are normalized...
                 marker.points.append(Point(x=float(d.x[0]), y=float(d.y[0])))
 
                 markersmsg.markers.append(marker)

@@ -2,9 +2,8 @@ import numpy as np
 from norfair import Detection
 from norfair.tracker import TrackedObject
 
-# TODO: possible to swap out distance functions? like using manhattan or cosine?
-# btw if you wanted to insert image feature vector association (like deepSORT), it would be here.
 # TODO: feature vector reID
+# swap distance functions
 
 
 def create_kp_vote_calculator(dist_threshold=1 / 40, conf_threshold=0.5):
